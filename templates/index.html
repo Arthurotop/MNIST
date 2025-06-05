@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Reconnaissance de chiffres</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <h2>Dessine un chiffre :</h2>
+
+    <canvas id="canvas" width="280" height="280"></canvas>
+    <br>
+
+    <button onclick="clearCanvas()">Effacer</button>
+    <button onclick="predict()">Prédire</button>
+    <button id="liveToggle" onclick="toggleLivePrediction()">Activer prédiction en direct</button>
+
+    <h3 id="result"></h3>
+    <div id="live-status" style="margin-top: 10px; color: #666; font-style: italic;"></div>
+
+    <script>
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+        let drawing = false;
+        let livePredictionEnabled = false;
+        let predictTimeout = null;
+        const PREDICTION_DELAY = 300; // Délai en ms entre la fin du dessin et la prédiction
+
+        canvas.addEventListener("mousedown", () => {
+            drawing = true;
+        });
+        
+        canvas.addEventListener("mouseup", () => {
+            drawing = false;
+            if (livePredictionEnabled) {
+                triggerDelayedPrediction();
+            }
+        });
+        
+        canvas.addEventListener("mouseout", () => {
+            drawing = false;
+            if (livePredictionEnabled) {
+                triggerDelayedPrediction();
+            }
+        });
+        
+        canvas.addEventListener("mousemove", (e) => {
+            draw(e);
+            if (livePredictionEnabled && drawing) {
+                // Réinitialiser le timeout à chaque mouvement
+                if (predictTimeout) {
+                    clearTimeout(predictTimeout);
+                }
+                triggerDelayedPrediction();
+            }
+        });
+
+        function triggerDelayedPrediction() {
+            if (predictTimeout) {
+                clearTimeout(predictTimeout);
+            }
+            predictTimeout = setTimeout(() => {
+                predict(true);
+            }, PREDICTION_DELAY);
+        }
+
+        function draw(e) {
+            if (!drawing) return;
+            ctx.fillStyle = "black";
+            ctx.beginPath();
+            ctx.arc(e.offsetX, e.offsetY, 12, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function clearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "white";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            document.getElementById("result").innerText = "";
+        }
+
+        function predict(isLive = false) {
+            const dataURL = canvas.toDataURL("image/png");
+            
+            // Ajouter un indicateur visuel pendant la prédiction
+            if (isLive) {
+                document.getElementById("live-status").innerText = "Prédiction en cours...";
+            }
+            
+            fetch("/predict", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ image: dataURL })
+            })
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById("result").innerText = "Prédit : " + data.prediction;
+                if (isLive) {
+                    document.getElementById("live-status").innerText = "Prédiction en direct active";
+                }
+            })
+            .catch(error => {
+                console.error("Erreur de prédiction:", error);
+                if (isLive) {
+                    document.getElementById("live-status").innerText = "Erreur lors de la prédiction";
+                }
+            });
+        }
+
+        function toggleLivePrediction() {
+            livePredictionEnabled = !livePredictionEnabled;
+            const toggleButton = document.getElementById("liveToggle");
+            const statusDiv = document.getElementById("live-status");
+            
+            if (livePredictionEnabled) {
+                toggleButton.textContent = "Désactiver prédiction en direct";
+                toggleButton.style.backgroundColor = "#e74c3c";
+                statusDiv.innerText = "Prédiction en direct active";
+                // Lancer une prédiction immédiate si le canvas n'est pas vide
+                if (!isCanvasEmpty()) {
+                    predict(true);
+                }
+            } else {
+                toggleButton.textContent = "Activer prédiction en direct";
+                toggleButton.style.backgroundColor = "#4CAF50";
+                statusDiv.innerText = "";
+                // Effacer tout timeout en cours
+                if (predictTimeout) {
+                    clearTimeout(predictTimeout);
+                    predictTimeout = null;
+                }
+            }
+        }
+
+        function isCanvasEmpty() {
+            const pixelBuffer = new Uint32Array(
+                ctx.getImageData(0, 0, canvas.width, canvas.height).data.buffer
+            );
+            return !pixelBuffer.some(color => color !== 0xffffffff);
+        }
+
+        // Initialisation du canvas avec fond blanc
+        clearCanvas();
+    </script>
+</body>
+</html>
